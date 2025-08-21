@@ -5,11 +5,15 @@
   "dependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "tailwindcss": "^3.3.3"
+    "react-scripts": "5.0.1",
+    "tailwindcss": "^3.3.3",
+    "gh-pages": "^4.0.0"
   },
   "scripts": {
     "start": "react-scripts start",
-    "build": "react-scripts build"
+    "build": "react-scripts build",
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d build"
   },
   "browserslist": {
     "production": [
@@ -24,3 +28,5 @@
     ]
   }
 }
+```"react-scripts": "5.0.1"`と`"gh-pages": "^4.0.0"`を追加しました。これらのパッケージがビルドに必要です。
+
