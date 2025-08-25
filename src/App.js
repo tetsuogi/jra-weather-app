@@ -64,13 +64,16 @@ const App = () => {
       const getTargetDates = () => {
         const dates = [];
         const baseDate = new Date(today);
-        let daysToAdd = (5 - dayOfWeek + 7) % 7; // 今週の金曜日までの日数
-        baseDate.setDate(today.getDate() + daysToAdd);
-
-        // 月曜日になったら翌週に切り替える
-        if (dayOfWeek === 1) {
-          baseDate.setDate(baseDate.getDate() + 7);
+        
+        // 今週の金曜日までの日数を計算
+        let daysUntilFriday = (5 - dayOfWeek + 7) % 7;
+        
+        // 金曜日以降（金・土・日）であれば、次の金曜日を基準にする
+        if (dayOfWeek >= 5 || dayOfWeek === 0) {
+          daysUntilFriday += 7;
         }
+
+        baseDate.setDate(today.getDate() + daysUntilFriday);
 
         for (let i = 0; i < 3; i++) {
           const date = new Date(baseDate);
@@ -100,37 +103,49 @@ const App = () => {
             const todayStr = today.toISOString().split('T')[0];
             const status = (targetDateStr < todayStr) ? '実績' : '予報';
 
-            // APIデータから対象日時の予報を取得
-            const forecastForDay = apiData.list.find(item => {
+            // 対象日の予報データを見つける
+            const forecastsForDay = apiData.list.filter(item => {
               const itemDate = new Date(item.dt * 1000);
               return itemDate.getFullYear() === targetDate.getFullYear() &&
                      itemDate.getMonth() === targetDate.getMonth() &&
-                     itemDate.getDate() === targetDate.getDate() &&
-                     itemDate.getHours() >= 12; // 昼間の予報を採用
+                     itemDate.getDate() === targetDate.getDate();
             });
 
-            if (!forecastForDay) {
+            if (forecastsForDay.length === 0) {
               return {
                 date: targetDate.toLocaleDateString('ja-JP', { month: '2-digit', day: '2-digit' }),
                 dayOfWeek: targetDate.toLocaleDateString('ja-JP', { weekday: 'short' }),
                 status,
-                weather: 'データなし',
                 weatherIcon: '❓',
-                precipProb: 'N/A',
                 tempHigh: 'N/A',
                 tempLow: 'N/A',
+                amPrecipProb: 'N/A',
+                pmPrecipProb: 'N/A'
               };
             }
-
-            const weatherMain = weatherCodeMap[forecastForDay.weather[0].icon] || '不明';
             
-            // 対象日の最高気温と最低気温を計算（簡易的な方法）
-            const dayTemps = apiData.list.filter(item => {
-                const itemDate = new Date(item.dt * 1000);
-                return itemDate.getFullYear() === targetDate.getFullYear() &&
-                       itemDate.getMonth() === targetDate.getMonth() &&
-                       itemDate.getDate() === targetDate.getDate();
-            }).map(item => item.main.temp);
+            // 午前と午後の降水確率を抽出
+            const amForecasts = forecastsForDay.filter(item => new Date(item.dt * 1000).getHours() < 12);
+            const pmForecasts = forecastsForDay.filter(item => new Date(item.dt * 1000).getHours() >= 12);
+
+            const amPrecipProbs = amForecasts.length > 0 ? amForecasts.map(item => item.pop * 100) : [];
+            const pmPrecipProbs = pmForecasts.length > 0 ? pmForecasts.map(item => item.pop * 100) : [];
+
+            // 10の位で四捨五入
+            const roundToTen = (num) => {
+              if (num === 'N/A') return 'N/A';
+              return (Math.round(num / 10) * 10).toFixed(0);
+            };
+
+            const amPrecipProb = amPrecipProbs.length > 0 ? roundToTen(Math.max(...amPrecipProbs)) : 'N/A';
+            const pmPrecipProb = pmPrecipProbs.length > 0 ? roundToTen(Math.max(...pmPrecipProbs)) : 'N/A';
+
+            // 昼間の代表的な天気を使用
+            const noonForecast = forecastsForDay.find(item => new Date(item.dt * 1000).getHours() >= 12) || forecastsForDay[0];
+            const weatherMain = weatherCodeMap[noonForecast.weather[0].icon] || '不明';
+            
+            // 対象日の最高気温と最低気温を計算
+            const dayTemps = forecastsForDay.map(item => item.main.temp);
             const tempHigh = Math.max(...dayTemps).toFixed(0);
             const tempLow = Math.min(...dayTemps).toFixed(0);
             
@@ -140,9 +155,10 @@ const App = () => {
               status,
               weather: weatherMain,
               weatherIcon: weatherIconMap[weatherMain] || weatherIconMap['default'],
-              precipProb: (forecastForDay.pop * 100).toFixed(0),
+              amPrecipProb,
+              pmPrecipProb,
               tempHigh,
-              tempLow,
+              tempLow
             };
           });
           
@@ -154,11 +170,11 @@ const App = () => {
               date: date.toLocaleDateString('ja-JP', { month: '2-digit', day: '2-digit' }),
               dayOfWeek: date.toLocaleDateString('ja-JP', { weekday: 'short' }),
               status: 'エラー',
-              weather: `取得失敗: ${e.message}`,
               weatherIcon: '⚠️',
-              precipProb: 'N/A',
               tempHigh: 'N/A',
               tempLow: 'N/A',
+              amPrecipProb: 'N/A',
+              pmPrecipProb: 'N/A'
             }))
           };
         }
@@ -184,13 +200,31 @@ const App = () => {
     <div className="flex flex-col items-center p-3 sm:p-4 bg-white/50 rounded-lg shadow-sm border border-gray-200">
       <p className="text-sm font-semibold">{forecast.dayOfWeek}</p>
       <p className="text-xs mb-1 text-gray-500">{forecast.date}</p>
-      <div className="text-3xl mb-2">{forecast.weatherIcon}</div>
-      <p className="text-sm font-bold text-blue-800 mb-1">{forecast.status}</p>
-      <p className="text-xs">{forecast.weather}</p>
-      <p className="text-xs text-gray-700">降水確率: {forecast.precipProb}%</p>
-      <p className="text-sm font-bold mt-2">
-        {forecast.tempHigh}° / {forecast.tempLow}°
-      </p>
+      
+      <div className="flex flex-col items-center mb-2">
+        <div className="text-5xl">{forecast.weatherIcon}</div>
+        <p className="text-sm font-bold text-blue-800">{forecast.status}</p>
+        <p className="text-xs">{forecast.weather}</p>
+      </div>
+
+      <div className="w-full text-center text-sm font-bold mt-2">
+        <span className="text-red-600">{forecast.tempHigh}°</span> / <span className="text-blue-600">{forecast.tempLow}°</span>
+      </div>
+      <p className="text-xs text-gray-700">気温</p>
+      
+      <div className="w-full text-center text-xs mt-4">
+        <p className="font-bold">降水確率 (%)</p>
+        <div className="flex justify-between mt-1 text-gray-700">
+          <div className="flex-1 text-center">
+            <p className="font-bold">{forecast.amPrecipProb}%</p>
+            <p>午前</p>
+          </div>
+          <div className="flex-1 text-center border-l border-gray-300">
+            <p className="font-bold">{forecast.pmPrecipProb}%</p>
+            <p>午後</p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 
